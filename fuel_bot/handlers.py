@@ -45,12 +45,18 @@ def build_router(
     """Register all bot commands and return an aiogram router."""
     router = Router()
 
-    async def send_actions(bot: Bot, actions: list[object]) -> None:
+    async def send_actions(bot: Bot, actions: list[object]) -> int:
+        if not actions:
+            return 0
+        if not settings.notifications_enabled:
+            LOGGER.info("Notifications disabled; suppressed %s action message(s).", len(actions))
+            return 0
+
         alert_chat_id = resolve_alert_chat_id(database, settings)
         if alert_chat_id is None:
             LOGGER.warning("No alert chat configured; generated %s action(s).", len(actions))
-            return
-        await send_messages_with_retry(bot, alert_chat_id, (action.message for action in actions))
+            return 0
+        return await send_messages_with_retry(bot, alert_chat_id, (action.message for action in actions))
 
     @router.message(Command("start"))
     async def start(message: Message) -> None:
@@ -265,11 +271,16 @@ def build_router(
             return
 
         actions = monitor.process_readings(readings)
-        await send_actions(bot, actions)
+        sent_count = await send_actions(bot, actions)
+        notification_line = (
+            f"Notifications sent: {sent_count}"
+            if settings.notifications_enabled
+            else f"Notifications paused: {len(actions)} action(s) suppressed"
+        )
         await message.answer(
             "✅ Fuel check complete.\n"
             f"Samsara readings: {format_samsara_fetch_summary(samsara_client)}\n"
-            f"Alerts/completions sent: {len(actions)}",
+            f"{notification_line}",
             reply_markup=main_menu_keyboard(),
         )
 
@@ -290,9 +301,13 @@ def build_router(
             return
 
         actions = monitor.process_reading(FuelReading(unit, fuel_percent))
-        await send_actions(bot, actions)
+        sent_count = await send_actions(bot, actions)
         if actions:
-            await message.answer(f"✅ Test processed for {unit}. Action sent to alert chat.", reply_markup=main_menu_keyboard())
+            if settings.notifications_enabled and sent_count:
+                result = "Action sent to alert chat."
+            else:
+                result = "Action generated, but notifications are paused."
+            await message.answer(f"✅ Test processed for {unit}. {result}", reply_markup=main_menu_keyboard())
         else:
             await message.answer(f"✅ Test processed for {unit}. No alert needed.", reply_markup=main_menu_keyboard())
 

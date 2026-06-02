@@ -28,6 +28,20 @@ def _get_int(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer, got {raw_value!r}") from exc
 
 
+def _get_bool(name: str, default: bool) -> bool:
+    """Read a boolean environment variable with common yes/no values."""
+    raw_value = os.getenv(name)
+    if raw_value is None or raw_value == "":
+        return default
+
+    normalized = raw_value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be a boolean, got {raw_value!r}")
+
+
 @dataclass(frozen=True)
 class Settings:
     """Runtime settings used throughout the bot."""
@@ -37,6 +51,7 @@ class Settings:
     alert_chat_id: int | None
     check_interval_minutes: int
     repeat_alert_minutes: int
+    notifications_enabled: bool
     fuel_threshold: int
     auto_clear_increase: int
     auto_clear_full_level: int
@@ -61,6 +76,7 @@ def load_settings() -> Settings:
         alert_chat_id=alert_chat_id,
         check_interval_minutes=_get_int("CHECK_INTERVAL_MINUTES", 10),
         repeat_alert_minutes=_get_int("REPEAT_ALERT_MINUTES", 29),
+        notifications_enabled=_get_bool("NOTIFICATIONS_ENABLED", False),
         fuel_threshold=_get_int("FUEL_THRESHOLD", 60),
         auto_clear_increase=_get_int("AUTO_CLEAR_INCREASE", 30),
         auto_clear_full_level=_get_int("AUTO_CLEAR_FULL_LEVEL", 85),

@@ -36,6 +36,12 @@ def create_scheduler(
             LOGGER.exception("Scheduled Samsara fuel check failed: %s", exc)
             return
 
+        if not actions:
+            return
+        if not settings.notifications_enabled:
+            LOGGER.info("Notifications disabled; suppressed %s scheduled message(s).", len(actions))
+            return
+
         alert_chat_id = resolve_alert_chat_id(database, settings)
         if alert_chat_id is None:
             LOGGER.warning("Skipping %s scheduled messages because no alert chat is configured.", len(actions))

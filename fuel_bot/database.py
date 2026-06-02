@@ -215,7 +215,7 @@ class Database:
             ).fetchone()
 
     def list_low_fuel_states(self, threshold: int, only_without_notes: bool = False) -> list[sqlite3.Row]:
-        """List trucks at or below the threshold, sorted lowest fuel first."""
+        """List trucks at or below the threshold, sorted highest fuel first."""
         note_filter = "AND n.id IS NULL" if only_without_notes else ""
         with self.connect() as conn:
             return list(
@@ -227,7 +227,7 @@ class Database:
                         ON n.unit_number = fs.unit_number AND n.active = 1
                     WHERE fs.current_fuel <= ?
                     {note_filter}
-                    ORDER BY fs.current_fuel ASC, fs.unit_number COLLATE NOCASE
+                    ORDER BY fs.current_fuel DESC, fs.unit_number COLLATE NOCASE
                     """,
                     (threshold,),
                 )
