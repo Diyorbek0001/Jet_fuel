@@ -1,0 +1,8 @@
+.env
+.venv/
+__pycache__/
+*.py[cod]
+fuel_bot.sqlite3
+*.sqlite3
+.DS_Store
+.pytest_cache/
