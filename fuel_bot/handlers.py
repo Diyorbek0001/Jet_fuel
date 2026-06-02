@@ -9,7 +9,7 @@ from aiogram import Bot, F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import KeyboardButton, Message, ReplyKeyboardMarkup
+from aiogram.types import ForceReply, KeyboardButton, Message, ReplyKeyboardMarkup
 
 from .config import Settings
 from .database import Database
@@ -77,6 +77,8 @@ def build_router(
 
     @router.message(Command("clear_note"))
     async def clear_note(message: Message) -> None:
+        if await clear_note_from_reply(message, command_args(message)):
+            return
         await clear_note_for_unit(message, command_args(message))
 
     @router.message(Command("notes"))
@@ -130,7 +132,10 @@ def build_router(
     @router.message(F.text == CLEAR_NOTE_BUTTON)
     async def clear_note_button(message: Message, state: FSMContext) -> None:
         await state.set_state(BotFlow.waiting_for_clear_note)
-        await message.answer("✅ Send the unit number to clear.", reply_markup=cancel_keyboard())
+        await message.answer(
+            "✅ Reply to this message with the unit number to clear.",
+            reply_markup=ForceReply(selective=True, input_field_placeholder="Unit number"),
+        )
 
     @router.message(F.text == CANCEL_BUTTON)
     async def cancel_button(message: Message, state: FSMContext) -> None:
@@ -211,13 +216,32 @@ def build_router(
     async def clear_note_for_unit(message: Message, text: str) -> None:
         unit = text.strip()
         if not unit:
-            await message.answer("Send the unit number to clear.", reply_markup=main_menu_keyboard())
+            await message.answer(
+                "Send the unit number to clear, like:\n"
+                "/clear_note 1002",
+                reply_markup=main_menu_keyboard(),
+            )
             return
         cleared = database.clear_note(unit)
         if cleared:
             await message.answer(f"✅ Cleared note for unit {unit}.", reply_markup=main_menu_keyboard())
         else:
             await message.answer(f"ℹ️ No active note found for unit {unit}.", reply_markup=main_menu_keyboard())
+
+    async def clear_note_from_reply(message: Message, text: str) -> bool:
+        if text.strip() or not message.reply_to_message:
+            return False
+
+        unit = unit_from_alert_message(message.reply_to_message)
+        if unit is None:
+            await message.answer(
+                "Reply with /clear_note only on a fuel alert or note message that includes a Unit line.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return True
+
+        await clear_note_for_unit(message, unit)
+        return True
 
     async def show_notes(message: Message) -> None:
         rows = database.get_active_notes()

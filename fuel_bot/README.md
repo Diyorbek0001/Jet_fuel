@@ -78,6 +78,7 @@ Slash commands are still available as a backup:
 - `/note UNIT NOTE_TEXT` - Add or update a dispatcher note
 - Reply to a fuel alert with `/note NOTE_TEXT` - Save a note for that alert's unit
 - `/clear_note UNIT` - Manually clear a note
+- Reply to a fuel alert or saved-note confirmation with `/clear_note` - Clear that unit's note
 - `/notes` - Show active notes
 - `/checkfuel` - Manually run the fuel check and alert logic
 - `/testfuel UNIT FUEL_PERCENT` - Simulate a fuel reading without Samsara
