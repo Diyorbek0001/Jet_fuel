@@ -69,6 +69,9 @@ Telegram buttons:
 - `🔄 Check Fuel`
 - `➕ Add Note`
 - `✅ Clear Note`
+- `🚫 Inactive Units`
+- `⏸ Deactivate Unit`
+- `▶️ Activate Unit`
 
 Slash commands are still available as a backup:
 
@@ -80,6 +83,9 @@ Slash commands are still available as a backup:
 - `/clear_note UNIT` - Manually clear a note
 - Reply to a fuel alert or saved-note confirmation with `/clear_note` - Clear that unit's note
 - `/notes` - Show active notes
+- `/inactive_units` - Show units ignored by fuel checks
+- `/deactivate_unit UNIT` - Add a unit to the inactive list so fuel checks ignore it
+- `/activate_unit UNIT` - Remove a unit from the inactive list so fuel checks include it again
 - `/checkfuel` - Manually run the fuel check and alert logic
 - `/testfuel UNIT FUEL_PERCENT` - Simulate a fuel reading without Samsara
 - `/set_alert_chat` - Save the current Telegram chat as the alert destination

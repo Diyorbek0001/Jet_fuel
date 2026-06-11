@@ -26,6 +26,9 @@ NOTES_BUTTON = "📝 Active Notes"
 CHECK_FUEL_BUTTON = "🔄 Check Fuel"
 ADD_NOTE_BUTTON = "➕ Add Note"
 CLEAR_NOTE_BUTTON = "✅ Clear Note"
+INACTIVE_UNITS_BUTTON = "🚫 Inactive Units"
+DEACTIVATE_UNIT_BUTTON = "⏸ Deactivate Unit"
+ACTIVATE_UNIT_BUTTON = "▶️ Activate Unit"
 CANCEL_BUTTON = "Cancel"
 
 
@@ -34,6 +37,8 @@ class BotFlow(StatesGroup):
 
     waiting_for_note = State()
     waiting_for_clear_note = State()
+    waiting_for_deactivate_unit = State()
+    waiting_for_activate_unit = State()
 
 
 def build_router(
@@ -91,6 +96,18 @@ def build_router(
     async def notes(message: Message) -> None:
         await show_notes(message)
 
+    @router.message(Command("inactive_units"))
+    async def inactive_units(message: Message) -> None:
+        await show_inactive_units(message)
+
+    @router.message(Command("deactivate_unit"))
+    async def deactivate_unit(message: Message) -> None:
+        await deactivate_unit_from_text(message, command_args(message))
+
+    @router.message(Command("activate_unit"))
+    async def activate_unit(message: Message) -> None:
+        await activate_unit_from_text(message, command_args(message))
+
     @router.message(Command("checkfuel"))
     async def checkfuel(message: Message, bot: Bot) -> None:
         await run_checkfuel(message, bot)
@@ -143,6 +160,26 @@ def build_router(
             reply_markup=ForceReply(selective=True, input_field_placeholder="Unit number"),
         )
 
+    @router.message(F.text == INACTIVE_UNITS_BUTTON)
+    async def inactive_units_button(message: Message) -> None:
+        await show_inactive_units(message)
+
+    @router.message(F.text == DEACTIVATE_UNIT_BUTTON)
+    async def deactivate_unit_button(message: Message, state: FSMContext) -> None:
+        await state.set_state(BotFlow.waiting_for_deactivate_unit)
+        await message.answer(
+            "⏸ Reply with the unit number to deactivate.",
+            reply_markup=ForceReply(selective=True, input_field_placeholder="Unit number"),
+        )
+
+    @router.message(F.text == ACTIVATE_UNIT_BUTTON)
+    async def activate_unit_button(message: Message, state: FSMContext) -> None:
+        await state.set_state(BotFlow.waiting_for_activate_unit)
+        await message.answer(
+            "▶️ Reply with the unit number to activate.",
+            reply_markup=ForceReply(selective=True, input_field_placeholder="Unit number"),
+        )
+
     @router.message(F.text == CANCEL_BUTTON)
     async def cancel_button(message: Message, state: FSMContext) -> None:
         await state.clear()
@@ -156,6 +193,16 @@ def build_router(
     @router.message(BotFlow.waiting_for_clear_note)
     async def clear_note_prompt_response(message: Message, state: FSMContext) -> None:
         await clear_note_for_unit(message, message.text or "")
+        await state.clear()
+
+    @router.message(BotFlow.waiting_for_deactivate_unit)
+    async def deactivate_unit_prompt_response(message: Message, state: FSMContext) -> None:
+        await deactivate_unit_from_text(message, message.text or "")
+        await state.clear()
+
+    @router.message(BotFlow.waiting_for_activate_unit)
+    async def activate_unit_prompt_response(message: Message, state: FSMContext) -> None:
+        await activate_unit_from_text(message, message.text or "")
         await state.clear()
 
     async def show_low_fuel(message: Message) -> None:
@@ -207,6 +254,13 @@ def build_router(
         return True
 
     async def save_note_for_unit(message: Message, unit: str, note_text: str) -> None:
+        if database.is_unit_inactive(unit):
+            await message.answer(
+                f"🚫 Unit {unit} is inactive. Activate it before adding a fuel note.",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
         state = database.get_fuel_state(unit)
         fuel_at_creation = float(state["current_fuel"]) if state else 0.0
         created_by = user_label(message)
@@ -263,6 +317,55 @@ def build_router(
             )
         await message.answer("\n".join(lines), reply_markup=main_menu_keyboard())
 
+    async def deactivate_unit_from_text(message: Message, text: str) -> None:
+        unit = text.strip()
+        if not unit:
+            await message.answer(
+                "Send the unit number to deactivate, like:\n"
+                "/deactivate_unit Pickup 8",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
+        changed = database.deactivate_unit(unit, user_label(message))
+        if changed:
+            await message.answer(
+                f"🚫 Unit {unit} deactivated. Fuel checks will ignore it.",
+                reply_markup=main_menu_keyboard(),
+            )
+        else:
+            await message.answer(f"ℹ️ Unit {unit} is already inactive.", reply_markup=main_menu_keyboard())
+
+    async def activate_unit_from_text(message: Message, text: str) -> None:
+        unit = text.strip()
+        if not unit:
+            await message.answer(
+                "Send the unit number to activate, like:\n"
+                "/activate_unit Pickup 8",
+                reply_markup=main_menu_keyboard(),
+            )
+            return
+
+        changed = database.activate_unit(unit)
+        if changed:
+            await message.answer(
+                f"✅ Unit {unit} activated. Fuel checks will include it again.",
+                reply_markup=main_menu_keyboard(),
+            )
+        else:
+            await message.answer(f"ℹ️ Unit {unit} is not inactive.", reply_markup=main_menu_keyboard())
+
+    async def show_inactive_units(message: Message) -> None:
+        rows = database.get_inactive_units()
+        if not rows:
+            await message.answer("✅ No inactive units.", reply_markup=main_menu_keyboard())
+            return
+
+        lines = ["🚫 Inactive Units", ""]
+        for row in rows:
+            lines.append(f"• {row['unit_number']} - by {row['deactivated_by']}")
+        await message.answer("\n".join(lines), reply_markup=main_menu_keyboard())
+
     async def run_checkfuel(message: Message, bot: Bot) -> None:
         try:
             readings = await fetch_and_store_samsara(database, samsara_client, return_readings=True)
@@ -299,6 +402,9 @@ def build_router(
         except ValueError:
             await message.answer("Fuel percent must be a number, like 45 or 70.", reply_markup=main_menu_keyboard())
             return
+        if database.is_unit_inactive(unit):
+            await message.answer(f"🚫 Test ignored for inactive unit {unit}.", reply_markup=main_menu_keyboard())
+            return
 
         actions = monitor.process_reading(FuelReading(unit, fuel_percent))
         sent_count = await send_actions(bot, actions)
@@ -321,6 +427,12 @@ async def fetch_and_store_samsara(
 ) -> list[FuelReading]:
     """Fetch Samsara fuel levels and store them as fuel states."""
     raw_readings = await samsara_client.fetch_fuel_levels()
+    inactive_units = database.get_inactive_unit_numbers()
+    active_raw_readings = [
+        item
+        for item in raw_readings
+        if str(item["unit_number"]).strip() not in inactive_units
+    ]
     readings = [
         FuelReading(
             unit_number=str(item["unit_number"]),
@@ -328,10 +440,10 @@ async def fetch_and_store_samsara(
             vehicle_id=item.get("vehicle_id"),
             vehicle_name=item.get("vehicle_name"),
         )
-        for item in raw_readings
+        for item in active_raw_readings
     ]
     if not return_readings:
-        database.bulk_upsert_fuel_states(raw_readings)
+        database.bulk_upsert_fuel_states(active_raw_readings)
     return readings
 
 
@@ -378,6 +490,8 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
             [KeyboardButton(text=LOW_FUEL_BUTTON), KeyboardButton(text=ATTENTION_BUTTON)],
             [KeyboardButton(text=NOTES_BUTTON), KeyboardButton(text=CHECK_FUEL_BUTTON)],
             [KeyboardButton(text=ADD_NOTE_BUTTON), KeyboardButton(text=CLEAR_NOTE_BUTTON)],
+            [KeyboardButton(text=INACTIVE_UNITS_BUTTON)],
+            [KeyboardButton(text=DEACTIVATE_UNIT_BUTTON), KeyboardButton(text=ACTIVATE_UNIT_BUTTON)],
         ],
         resize_keyboard=True,
         input_field_placeholder="Choose an action",
@@ -400,11 +514,12 @@ def format_fuel_rows(rows: list[object], title: str) -> str:
     lines = [title, ""]
     for row in rows:
         fuel = float(row["current_fuel"])
-        note = row["note"] or "No note"
-        lines.append(f"{fuel_color(fuel)} {row['unit_number']} — {format_percent(fuel)}")
-        lines.append(f"Note: {note}")
-        lines.append("")
-    return "\n".join(lines).rstrip()
+        note = row["note"]
+        line = f"{fuel_color(fuel)} {row['unit_number']} - {format_percent(fuel)}"
+        if note:
+            line = f"{line} {note}"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def format_samsara_fetch_summary(samsara_client: SamsaraClient) -> str:

@@ -71,6 +71,12 @@ class Database:
                     message TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS inactive_units (
+                    unit_number TEXT PRIMARY KEY,
+                    deactivated_by TEXT NOT NULL,
+                    deactivated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -107,9 +113,10 @@ class Database:
             return list(
                 conn.execute(
                     """
-                    SELECT * FROM unit_notes
-                    WHERE active = 1
-                    ORDER BY unit_number COLLATE NOCASE
+                    SELECT n.* FROM unit_notes n
+                    LEFT JOIN inactive_units i ON i.unit_number = n.unit_number
+                    WHERE n.active = 1 AND i.unit_number IS NULL
+                    ORDER BY n.unit_number COLLATE NOCASE
                     """
                 )
             )
@@ -152,6 +159,55 @@ class Database:
                 (utc_now_iso(), unit_number),
             )
             return cur.rowcount > 0
+
+    def deactivate_unit(self, unit_number: str, deactivated_by: str) -> bool:
+        """Add a unit to the inactive list. Returns True when it changed."""
+        now = utc_now_iso()
+        with self.connect() as conn:
+            cur = conn.execute(
+                """
+                INSERT OR IGNORE INTO inactive_units
+                    (unit_number, deactivated_by, deactivated_at)
+                VALUES (?, ?, ?)
+                """,
+                (unit_number, deactivated_by, now),
+            )
+            return cur.rowcount > 0
+
+    def activate_unit(self, unit_number: str) -> bool:
+        """Remove a unit from the inactive list. Returns True when it changed."""
+        with self.connect() as conn:
+            cur = conn.execute(
+                "DELETE FROM inactive_units WHERE unit_number = ?",
+                (unit_number,),
+            )
+            return cur.rowcount > 0
+
+    def is_unit_inactive(self, unit_number: str) -> bool:
+        with self.connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM inactive_units WHERE unit_number = ? LIMIT 1",
+                (unit_number,),
+            ).fetchone()
+            return row is not None
+
+    def get_inactive_unit_numbers(self) -> set[str]:
+        with self.connect() as conn:
+            return {
+                str(row["unit_number"])
+                for row in conn.execute("SELECT unit_number FROM inactive_units")
+            }
+
+    def get_inactive_units(self) -> list[sqlite3.Row]:
+        with self.connect() as conn:
+            return list(
+                conn.execute(
+                    """
+                    SELECT * FROM inactive_units
+                    ORDER BY unit_number COLLATE NOCASE
+                    """
+                )
+            )
 
     def upsert_fuel_state(
         self,
@@ -225,7 +281,10 @@ class Database:
                     FROM fuel_states fs
                     LEFT JOIN unit_notes n
                         ON n.unit_number = fs.unit_number AND n.active = 1
+                    LEFT JOIN inactive_units i
+                        ON i.unit_number = fs.unit_number
                     WHERE fs.current_fuel <= ?
+                    AND i.unit_number IS NULL
                     {note_filter}
                     ORDER BY fs.current_fuel DESC, fs.unit_number COLLATE NOCASE
                     """,

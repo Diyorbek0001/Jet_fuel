@@ -55,6 +55,9 @@ class FuelMonitor:
     def process_reading(self, reading: FuelReading) -> list[FuelAction]:
         """Apply all rules to one unit using the current fuel percent."""
         unit = reading.unit_number.strip()
+        if self.database.is_unit_inactive(unit):
+            return []
+
         fuel = round(float(reading.fuel_percent), 1)
 
         state = self.database.upsert_fuel_state(
